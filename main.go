@@ -250,8 +250,8 @@ func getPodsInANode(nodeName, podLabel string) bool {
 		log.Printf("Error in getting pods list : %s\n", err)
 	}
 	for _, p := range pods.Items {
-		cpuPercent, memoryPercent, nodeUnschedulable, _ := GetNodeMetrics(nodeName)
-		if nodeUnschedulable {//|| spotOrNoSchedule{
+		cpuPercent, memoryPercent, nodeUnschedulable, spotOrNoSchedule := GetNodeMetrics(nodeName)
+		if nodeUnschedulable || spotOrNoSchedule{
 			return false
 		}else if memoryPercent > 80.0 && cpuPercent > 80.0 {
 			return false
