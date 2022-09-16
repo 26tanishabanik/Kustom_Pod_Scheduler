@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tanisha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tanisha
+  template:
+    metadata:
+      labels:
+        app: tanisha
+    spec:
+      schedulerName: customScheduler
+      containers:
+      - name: tanisha
+        image: nginx:latest
+        command: ["/bin/sleep","infinity"]
+        imagePullPolicy: IfNotPresent
