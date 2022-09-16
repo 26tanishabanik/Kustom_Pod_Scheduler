@@ -9,7 +9,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"math/rand"
 	"time"
-
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	listers "k8s.io/client-go/listers/core/v1"
@@ -19,14 +18,14 @@ import (
 	metrics "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
-// type Filter func(node *v1.Node, pod *v1.Pod) (string,bool)
 
 type CustomKubeScheduler struct {
 	ClientSet  *kubernetes.Clientset
 	PodQueue   chan *v1.Pod
 	NodeLister listers.NodeLister
-	// FilterFunc []Filter
 }
+
+
 
 func initInformers(clientset *kubernetes.Clientset, podQueue chan *v1.Pod, quit chan struct{}) listers.NodeLister {
 	factory := informers.NewSharedInformerFactory(clientset, 0)
@@ -36,10 +35,10 @@ func initInformers(clientset *kubernetes.Clientset, podQueue chan *v1.Pod, quit 
 		AddFunc: func(obj interface{}) {
 			node, ok := obj.(*v1.Node)
 			if !ok {
-				log.Println("this is not a node")
 				return
 			}
-			log.Printf("New Node Added to Cluster: %s", node.GetName())
+			log.Printf("A New Node Has Been Added to the Cluster: %s", node.GetName())
+			
 		},
 	})
 
@@ -48,7 +47,6 @@ func initInformers(clientset *kubernetes.Clientset, podQueue chan *v1.Pod, quit 
 		AddFunc: func(obj interface{}) {
 			pod, ok := obj.(*v1.Pod)
 			if !ok {
-				log.Println("this is not a pod")
 				return
 			}
 			if pod.Spec.NodeName == "" && pod.Spec.SchedulerName == "customScheduler" {
@@ -68,30 +66,32 @@ func NewScheduler(podQueue chan *v1.Pod, quit chan struct{}) CustomKubeScheduler
 		ClientSet:  clientset,
 		PodQueue:   podQueue,
 		NodeLister: initInformers(clientset, podQueue, quit),
-		// FilterFunc: []Filter{podLabelIsThereInNode},
 	}
 }
+
+
 
 func (ks *CustomKubeScheduler) schedulePod() {
 
 	pod := <-ks.PodQueue
-	fmt.Println("found a pod to schedule:", pod.Namespace, "/", pod.Name)
+	fmt.Println("Hurray!!, found a pod to schedule:", pod.Namespace, "/", pod.Name)
 
-	node := ks.findFit(pod)
+	node := ks.findtheBestNode(pod)
 
 	if node != "nil" {
-		err := ks.bindPod(pod, node)
+		err := ks.bindPodToNode(pod, node)
 		if err != nil {
-			log.Println("failed to bind pod", err)
+			log.Println("Error in binding the pod: ", err)
 			return
 		}
 	}
 
-	message := fmt.Sprintf("Scheduled pod [%s/%s] on %s with label %s\n", pod.Namespace, pod.Name, node, pod.Labels["app"])
+	message := fmt.Sprintf("Scheduled pod %s/%s on %s with label %s\n", pod.Namespace, pod.Name, node, pod.Labels["app"])
+
 
 	err := ks.emitEvent(pod, message)
 	if err != nil {
-		log.Println("failed to emit pod schedule event", err)
+		log.Println("Error in emit pod schedule event: ", err)
 		return
 	}
 
@@ -107,7 +107,6 @@ func GetNodeCapacity(nodeName string) (int64, *resource.Quantity, bool, bool) {
 	for _, v := range nodes.Items {
 
 		if v.Name == nodeName {
-			fmt.Println(len(v.Spec.Taints))
 			for _, t := range v.Spec.Taints{
 				if t.Value == "spot" && t.Effect == "NoSchedule" {
 					return v.Status.Capacity.Cpu().MilliValue(), v.Status.Capacity.Memory(), v.Spec.Unschedulable, true
@@ -143,7 +142,6 @@ func podLabelIsThereInNode(pod *v1.Pod) (string, bool) {
 	nodesList := getNodeList()
 	var podLabel string
 	for _, n := range nodesList.Items {
-		fmt.Println("Node: ", n.Name)
 		if pod.Labels["app"] != "" {
 			podLabel = pod.Labels["app"]
 		} else {
@@ -156,7 +154,7 @@ func podLabelIsThereInNode(pod *v1.Pod) (string, bool) {
 	return "nil", false
 }
 
-func (ks *CustomKubeScheduler) findFit(pod *v1.Pod) string {
+func (ks *CustomKubeScheduler) findtheBestNode(pod *v1.Pod) string {
 	node, schedulable := podLabelIsThereInNode(pod)
 	if schedulable {
 		return node
@@ -164,7 +162,7 @@ func (ks *CustomKubeScheduler) findFit(pod *v1.Pod) string {
 	return "nil"
 }
 
-func (ks *CustomKubeScheduler) bindPod(p *v1.Pod, node string) error {
+func (ks *CustomKubeScheduler) bindPodToNode(p *v1.Pod, node string) error {
 	err := ks.ClientSet.CoreV1().Pods(p.Namespace).Bind(context.Background(), &v1.Binding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      p.Name,
@@ -244,7 +242,6 @@ func getNodeList() *v1.NodeList {
 }
 
 
-
 func getPodsInANode(nodeName, podLabel string) bool {
 	clientset := clientSetup()
 
@@ -256,7 +253,7 @@ func getPodsInANode(nodeName, podLabel string) bool {
 		cpuPercent, memoryPercent, nodeUnschedulable, _ := GetNodeMetrics(nodeName)
 		if nodeUnschedulable {//|| spotOrNoSchedule{
 			return false
-		}else if memoryPercent > 40.0 && cpuPercent > 7.0 {
+		}else if memoryPercent > 80.0 && cpuPercent > 80.0 {
 			return false
 		}else if p.Labels["app"] == podLabel  {
 				return false
@@ -271,7 +268,7 @@ func (ks *CustomKubeScheduler) Run(quit chan struct{}) {
 }
 
 func main() {
-	fmt.Println("I'm a scheduler!")
+	fmt.Println("Hey there!!, I am your buddy, the kube scheduler")
 
 	rand.Seed(time.Now().Unix())
 
