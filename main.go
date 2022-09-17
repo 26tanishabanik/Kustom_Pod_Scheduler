@@ -18,13 +18,15 @@ import (
 )
 
 
+// custom scheduler struct
+
 type CustomKubeScheduler struct {
 	ClientSet  *kubernetes.Clientset
 	PodQueue   chan *v1.Pod
 	NodeLister listers.NodeLister
 }
 
-
+// watches for new nodes or pods
 
 func initInformers(clientset *kubernetes.Clientset, podQueue chan *v1.Pod, quit chan struct{}) listers.NodeLister {
 	factory := informers.NewSharedInformerFactory(clientset, 0)
@@ -58,6 +60,8 @@ func initInformers(clientset *kubernetes.Clientset, podQueue chan *v1.Pod, quit 
 	return nodeInformer.Lister()
 }
 
+// creates a new scheduler
+
 func NewScheduler(podQueue chan *v1.Pod, quit chan struct{}) CustomKubeScheduler {
 	clientset := clientSetup()
 
@@ -68,7 +72,7 @@ func NewScheduler(podQueue chan *v1.Pod, quit chan struct{}) CustomKubeScheduler
 	}
 }
 
-
+// main function for scheduling a pod
 
 func (ks *CustomKubeScheduler) schedulePod() {
 
@@ -96,6 +100,9 @@ func (ks *CustomKubeScheduler) schedulePod() {
 
 	fmt.Println(message)
 }
+
+// getting node cpu, memory capacity and various features of the node such as spot vm or not, unschedulable or not and other taints
+
 func GetNodeCapacity(nodeName string) (int64, *resource.Quantity, bool, bool) {
 	clientset := clientSetup()
 	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
@@ -118,6 +125,8 @@ func GetNodeCapacity(nodeName string) (int64, *resource.Quantity, bool, bool) {
 
 }
 
+// getting the node metrics using the metrics package
+
 func GetNodeMetrics(nodeName string) (float64, float64, bool, bool){
 	clientsetMetrics := clientMetricsSetup()
 	nodeMetricsList, err := clientsetMetrics.MetricsV1beta1().NodeMetricses().List(context.Background(), metav1.ListOptions{})
@@ -137,7 +146,9 @@ func GetNodeMetrics(nodeName string) (float64, float64, bool, bool){
 
 }
 
-func podLabelIsThereInNode(pod *v1.Pod) (string, bool) {
+
+// checks if pod label is empty or not, if empty just takes the pod name as the label else takes the pod label
+func podLabelIsThere(pod *v1.Pod) (string, bool) {
 	nodesList := getNodeList()
 	var podLabel string
 	for _, n := range nodesList.Items {
@@ -146,20 +157,24 @@ func podLabelIsThereInNode(pod *v1.Pod) (string, bool) {
 		} else {
 			podLabel = pod.Name
 		}
-		if getPodsInANode(n.Name, podLabel) {
+		if getPodLabelsInANode(n.Name, podLabel) {
 			return n.Name, true
 		}
 	}
 	return "nil", false
 }
 
+// finds the best fit node, that meets the requirement
+
 func (ks *CustomKubeScheduler) findtheBestNode(pod *v1.Pod) string {
-	node, schedulable := podLabelIsThereInNode(pod)
+	node, schedulable := podLabelIsThere(pod)
 	if schedulable {
 		return node
 	}
 	return "nil"
 }
+
+// binds the pod to the best fit node
 
 func (ks *CustomKubeScheduler) bindPodToNode(p *v1.Pod, node string) error {
 	err := ks.ClientSet.CoreV1().Pods(p.Namespace).Bind(context.Background(), &v1.Binding{
@@ -175,6 +190,8 @@ func (ks *CustomKubeScheduler) bindPodToNode(p *v1.Pod, node string) error {
 	}, metav1.CreateOptions{})
 	return err
 }
+
+//  emits a pod schedule event after a pod is scheduled
 
 func (ks *CustomKubeScheduler) emitEvent(p *v1.Pod, message string) error {
 	timestamp := time.Now().UTC()
@@ -204,6 +221,8 @@ func (ks *CustomKubeScheduler) emitEvent(p *v1.Pod, message string) error {
 	return nil
 }
 
+// setting up the k8s clientset 
+
 func clientSetup() *kubernetes.Clientset {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	kubeconfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, &clientcmd.ConfigOverrides{})
@@ -215,6 +234,8 @@ func clientSetup() *kubernetes.Clientset {
 	return clientset
 
 }
+
+// setting up the k8s metrics clientset
 
 func clientMetricsSetup() *metrics.Clientset {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
@@ -231,6 +252,8 @@ func clientMetricsSetup() *metrics.Clientset {
 
 }
 
+// gets the node list in a cluster
+
 func getNodeList() *v1.NodeList {
 	clientset := clientSetup()
 	nodes, err := clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
@@ -240,8 +263,8 @@ func getNodeList() *v1.NodeList {
 	return nodes
 }
 
-
-func getPodsInANode(nodeName, podLabel string) bool {
+// checks if pods labels are there in a node
+func getPodLabelsInANode(nodeName, podLabel string) bool {
 	clientset := clientSetup()
 
 	pods, err := clientset.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{FieldSelector: "spec.nodeName=" + nodeName})
@@ -262,13 +285,15 @@ func getPodsInANode(nodeName, podLabel string) bool {
 	return true
 }
 
-func (ks *CustomKubeScheduler) Run(quit chan struct{}) {
+// runs the scheduler and waits to see if a pod gets scheduled
+
+func (ks *CustomKubeScheduler) RunScheduler(quit chan struct{}) {
 	wait.Until(ks.schedulePod, 0, quit)
 }
 
 func main() {
+	fmt.Println()
 	fmt.Println("Hey there!!, I am your buddy, the kube scheduler")
-
 
 	podQueue := make(chan *v1.Pod, 300)
 	defer close(podQueue)
@@ -277,5 +302,5 @@ func main() {
 	defer close(quit)
 
 	scheduler := NewScheduler(podQueue, quit)
-	scheduler.Run(quit)
+	scheduler.RunScheduler(quit)
 }
